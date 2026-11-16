@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>The Game of Mutated Life</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body class="loading">
+    <canvas id="c"></canvas>
+    <div id="load">
+      <h1>The Game of<br />Mutated Life</h1>
+      <p id="status">Stirring the primordial soup…</p>
+      <div id="bar"><div id="fill"></div></div>
+    </div>
+    <div id="menu">
+      <h1>The Game of<br />Mutated Life</h1>
+      <p class="keys">
+        <b>Mouse</b> look · <b>WASD</b> move · <b>E / Q</b> up / down · <b>Shift</b> fast · <b>Wheel</b> speed<br />
+        <b>Click</b> select a cell · <b>F</b> follow it · <b>G</b> go to a cell · <b>Space</b> pause life · <b>+ / −</b> life speed (up to 1 day/s) · <b>N</b> new first cell · <b>L</b> log · <b>V</b> charts · <b>C</b> screenshot<br />
+        <b>1–5</b> viewpoints · <b>P</b> pixel filter · <b>[ ]</b> time ±1 h · <b>T</b> pause sun · <b>H</b> stats · <b>Esc</b> menu
+      </p>
+      <p class="pressure">Pressure <button class="small" data-p="gentle">Gentle</button> <button class="small on" data-p="normal">Normal</button> <button class="small" data-p="harsh">Harsh</button></p>
+      <p class="seed">Seed <input id="seed" type="text" spellcheck="false" /> <button id="reseed" class="small">New world</button></p>
+      <p class="modes"><button id="go">Explore</button> <button id="headlessGo">Headless</button> <button id="shotBtn" class="small">Screenshot</button></p>
+      <p class="hint">Headless runs the simulation as fast as possible without drawing the world, and shows the log.</p>
+    </div>
+    <div id="hud"></div>
+    <div id="lifebar"></div>
+    <div id="cross"></div>
+    <div id="inspector"></div>
+    <div id="log"></div>
+    <div id="toast"></div>
+    <div id="headless">
+      <header>
+        <h2>Headless simulation</h2>
+        <div class="ctl">
+          <button class="small" id="hlPause">Pause</button>
+          <span class="speeds">
+            <button class="small" data-s="64">×64</button>
+            <button class="small" data-s="600">×600</button>
+            <button class="small" data-s="max">Max</button>
+          </span>
+          <button class="small" id="hlSeed">New first cell</button>
+          <button class="small" id="hlBack">Back to 3D</button>
+        </div>
+      </header>
+      <div class="cols">
+        <section>
+          <div id="hlStats"></div>
+          <div id="hlCharts"></div>
+          <h3>Species</h3>
+          <table id="hlSpecies"></table>
+        </section>
+        <section class="logcol">
+          <h3>Log <span id="hlLogCount"></span></h3>
+          <div id="hlLog"></div>
+        </section>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
