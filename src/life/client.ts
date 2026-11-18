@@ -13,7 +13,7 @@ export class LifeClient {
   onFocus: (id: number) => void = () => {};
   onCharts: (c: Charts) => void = () => {};
 
-  constructor(seed: number, private readonly draw: LifeDraw) {
+  constructor(seed: number, private readonly draw: LifeDraw, life: boolean) {
     this.worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
     let resolve: () => void = () => {};
     this.firstSnap = new Promise((r) => { resolve = r; });
@@ -33,7 +33,7 @@ export class LifeClient {
       else console.error('simulation: ' + m.message);
     };
     this.worker.onerror = (e) => console.error('simulation worker', e);
-    this.send({ t: 'init', seed });
+    this.send({ t: 'init', seed, life });
   }
 
   ready(): Promise<void> { return this.firstSnap; }

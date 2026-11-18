@@ -390,3 +390,11 @@ body.flash canvas {
   filter: brightness(1.8);
   transition: none;
 }
+
+/* Life off: only the environment — hide every life-specific control and panel */
+html.nolife .lifeonly,
+html.nolife #inspector,
+html.nolife #log,
+html:not(.nolife) .nolifeonly {
+  display: none;
+}

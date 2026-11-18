@@ -12,7 +12,7 @@ import type { Species } from './species';
 let sim: Sim | null = null;
 const sky = new DayNight();
 let speed = 1, paused = false, owed = 0, last = 0, lastSnap = 0, day = 0, prevHour = sky.hour;
-let selected: Organism | null = null, focus = 0, logSent = 0, lite = false;
+let selected: Organism | null = null, focus = 0, logSent = 0, lite = false, lifeOn = true;
 // actual-speed measurement over a sliding window
 let winStart = 0, winSim = 0, winSteps = 0, winBusy = 0, actual = 0, stepsPerSec = 0, busy = 0;
 
@@ -63,7 +63,7 @@ function charts(S: Sim): FromWorker {
 
 function snapshot(): void {
   if (!sim) return;
-  const S = sim, n = lite ? 0 : S.orgs.length;
+  const S = sim, n = lite || !lifeOn ? 0 : S.orgs.length;
   const orgs = new Float32Array(Math.max(1, n) * ORG);
   for (let i = 0; i < n; i++) {
     const o = S.orgs[i], k = i * ORG;
@@ -73,7 +73,7 @@ function snapshot(): void {
     orgs[k + 11] = o.color[0]; orgs[k + 12] = o.color[1]; orgs[k + 13] = o.color[2];
     orgs[k + 14] = o.activity; orgs[k + 15] = o.phen.nPhoto > 0 ? 0 : 1; orgs[k + 16] = o.phen.built;
   }
-  const env = S.env, np = lite ? 0 : env.np;
+  const env = S.env, np = lite || !lifeOn ? 0 : env.np;
   const particles = new Float32Array(Math.max(1, np) * 3);
   let m = 0;
   for (let i = 0; i < np; i++) if (env.palive[i]) { particles[m * 3] = env.px[i]; particles[m * 3 + 1] = env.py[i]; particles[m * 3 + 2] = env.pz[i]; m++; }
@@ -89,7 +89,7 @@ function snapshot(): void {
     sexual: S.stats.sexual, maxCells: S.stats.maxCells,
     species: living.slice(0, lite ? 15 : 6).map(speciesInfo), speciesAlive: living.length,
     log: newLog, logTotal: total, event: S.event, pressure: S.pressure,
-    detail: selected && !lite ? detail(selected) : null, focus, count: S.orgs.length, lite, busy,
+    detail: selected && !lite ? detail(selected) : null, focus, count: S.orgs.length, lite, busy, life: lifeOn,
   }, [orgs.buffer, particles.buffer]);
   focus = 0;
 }
@@ -106,7 +106,7 @@ function loop(): void {
       sky.update(STEP);
       if (sky.hour < prevHour) day++;
       prevHour = sky.hour;
-      sim.step(sunLevel(), day + sky.hour / 24);
+      if (lifeOn) sim.step(sunLevel(), day + sky.hour / 24);
       owed -= STEP;
       steps++;
     }
@@ -131,9 +131,11 @@ self.onmessage = (e: MessageEvent<ToWorker>): void => {
     if (m.t === 'init') {
       const T = new Terrain(makeLayout(new Rng(m.seed)), m.seed);
       sim = new Sim(T, m.seed);
+      lifeOn = m.life;
       last = winStart = performance.now();
       channel.port2.postMessage(0);
     } else if (m.t === 'speed') speed = m.speed;
+    else if (m.t === 'life') { lifeOn = m.on; if (!lifeOn) selected = null; }
     else if (m.t === 'pause') paused = m.paused;
     else if (m.t === 'lite') lite = m.on;
     else if (m.t === 'charts' && sim) post(charts(sim));

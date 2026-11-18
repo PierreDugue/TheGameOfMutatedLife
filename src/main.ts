@@ -22,6 +22,9 @@ function readSeed(): number {
   return Number.isFinite(n) ? n >>> 0 : DEFAULT_SEED;
 }
 
+/** Life is off unless the URL says `?life=1` (the environment alone is the default). */
+const readLife = (): boolean => new URLSearchParams(location.search).get('life') === '1';
+
 /** Preset viewpoints derived from the layout: pond, river, shore, under water, whole valley. */
 function poses(T: Terrain): Pose[] {
   const P = T.layout.pond, c = P.c, cr = Math.cos(P.rot), sr = Math.sin(P.rot);
@@ -41,7 +44,9 @@ async function main(): Promise<void> {
   const canvas = document.getElementById('c') as HTMLCanvasElement;
   const seed = readSeed();
   ui.seed.value = String(seed);
-  const goSeed = (s: number): void => { location.search = `?seed=${s >>> 0}`; };
+  let lifeOn = readLife();
+  document.documentElement.classList.toggle('nolife', !lifeOn);
+  const goSeed = (s: number): void => { location.search = `?seed=${s >>> 0}${lifeOn ? '&life=1' : ''}`; };
   ui.reseed.onclick = () => goSeed(Math.floor(Math.random() * 1e6));
   ui.seed.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') goSeed(Number.parseInt(ui.seed.value, 10) || 0); });
   try {
@@ -68,7 +73,7 @@ async function main(): Promise<void> {
     await ui.progress('Stirring the primordial soup…', 0.8);
     t0 = performance.now();
     const draw = new LifeDraw(T, 4000, MAX_PARTICLES);
-    const life = new LifeClient(seed, draw);
+    const life = new LifeClient(seed, draw, lifeOn);
     await life.ready();
     console.info(`life worker ready: ${(performance.now() - t0).toFixed(0)} ms`);
 
@@ -103,6 +108,13 @@ async function main(): Promise<void> {
     };
     // screenshots (C): the next rendered frame is saved as a PNG named after the seed and the simulated time
     const toast = document.getElementById('toast')!;
+    let toastTimer = 0;
+    const showToast = (text: string): void => {
+      toast.textContent = text;
+      toast.className = 'on';
+      clearTimeout(toastTimer);
+      toastTimer = window.setTimeout(() => { toast.className = ''; }, 2200);
+    };
     const saveScreenshot = (): void => {
       const s = life.snap!, h = Math.floor(s.hour), m = Math.floor((s.hour % 1) * 60);
       const name = `mutated-life-seed${seed}-day${s.day + 1}-${String(h).padStart(2, '0')}h${String(m).padStart(2, '0')}.png`;
@@ -111,9 +123,7 @@ async function main(): Promise<void> {
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob); a.download = name; a.click();
         setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-        toast.textContent = `Saved ${name}`;
-        toast.className = 'on';
-        setTimeout(() => { toast.className = ''; }, 2200);
+        showToast(`Saved ${name}`);
       });
       // render one frame now, so it also works while paused or with the page hidden
       const snap = life.snap!;
@@ -200,6 +210,26 @@ async function main(): Promise<void> {
         for (const o of document.querySelectorAll('.pressure button')) o.classList.toggle('on', o === b);
       };
     }
+    const lifeBtn = document.getElementById('lifeToggle') as HTMLButtonElement;
+    const setLife = (on: boolean): void => {
+      lifeOn = on;
+      life.send({ t: 'life', on });
+      document.documentElement.classList.toggle('nolife', !on);
+      lifeBtn.textContent = on ? 'Life: on' : 'Life: off';
+      lifeBtn.classList.toggle('on', on);
+      const q = new URLSearchParams(location.search);
+      if (on) q.set('life', '1'); else q.delete('life');
+      window.history.replaceState(null, '', `${location.pathname}${q.size ? `?${q}` : ''}`);
+      if (!on) {
+        selected = 0; cam.follow = null; inspector.show(null); showOverlay(false);
+        renderer.setLife(draw.imp, 0, 0);
+        renderer.setCreatures(draw.prim, [0, 0, 0]);
+      }
+    };
+    lifeBtn.onclick = () => setLife(!lifeOn);
+    lifeBtn.textContent = lifeOn ? 'Life: on' : 'Life: off';
+    lifeBtn.classList.toggle('on', lifeOn);
+
     if (import.meta.env.DEV) {
       Object.assign(window, { life: { cam, renderer, T, sky, POSES, S, client: life, draw } });
       void import('./dev/evo').then((m) => m.installEvo(T));
@@ -217,10 +247,12 @@ async function main(): Promise<void> {
       }
       sky.hour = snap.hour; sky.update(0);
       cam.update(dt);
-      const pxPerRad = renderer.lowH / (2 * 0.62);
-      draw.build(snap.orgs, snap.n, snap.particles, snap.np, [cam.x, cam.y, cam.z], pxPerRad, selected, time);
-      renderer.setLife(draw.imp, draw.impCount, draw.firstCell);
-      renderer.setCreatures(draw.prim, draw.counts);
+      if (lifeOn) {
+        const pxPerRad = renderer.lowH / (2 * 0.62);
+        draw.build(snap.orgs, snap.n, snap.particles, snap.np, [cam.x, cam.y, cam.z], pxPerRad, selected, time);
+        renderer.setLife(draw.imp, draw.impCount, draw.firstCell);
+        renderer.setCreatures(draw.prim, draw.counts);
+      }
       renderer.render(cam, time, sky.light, cam.underwater());
 
       barT += dt;
@@ -230,7 +262,8 @@ async function main(): Promise<void> {
         const speedTxt = snap.paused ? '<span class="warn">paused</span>'
           : `×${req}${act < req * 0.9 ? ` requested · <span class="warn">×${act.toFixed(0)} actual</span>` : ''}${act >= 30 ? ` · ${(act / 600).toFixed(2)} days/s` : ''}`;
         const top = snap.species.slice(0, 4).map((sp) => `<span class="sp" style="color:${hueCss(sp.hue)}">${esc(sp.name)}</span> ${sp.count}`).join(' · ');
-        lifeBar(`${clock(snap.time, snap.hour, snap.day + 1)}${snap.sunPaused ? ' (sun paused)' : ''} · ${speedTxt}${snap.event ? ` · <span class="warn">${esc(snap.event)}</span>` : ''}\n` +
+        if (!lifeOn) lifeBar(`${clock(snap.time, snap.hour, snap.day + 1)}${snap.sunPaused ? ' (sun paused)' : ''} · ${speedTxt}`);
+        else lifeBar(`${clock(snap.time, snap.hour, snap.day + 1)}${snap.sunPaused ? ' (sun paused)' : ''} · ${speedTxt}${snap.event ? ` · <span class="warn">${esc(snap.event)}</span>` : ''}\n` +
           (snap.n ? `${snap.n} organisms · ${snap.speciesAlive} species · gen ${snap.maxGen} · up to ${snap.maxCells} cells · ${snap.births} born (${snap.sexual} of two parents) · ${snap.deaths} died · ${snap.eaten} eaten\n${top}`
             : '<span class="warn">Life went extinct — press N for a new first cell</span>'));
         const d = snap.detail;
@@ -240,7 +273,7 @@ async function main(): Promise<void> {
         hudN++; hudT += dtr; worst = Math.max(worst, dtr);
         if (hudT > 500) {
           ui.stats(`seed ${seed} · ${((hudN * 1000) / hudT).toFixed(0)} fps · worst ${worst.toFixed(1)} ms · sim ${snap.stepsPerSec.toFixed(0)} steps/s (×${snap.actual.toFixed(1)})\n` +
-            `${renderer.lowW}×${renderer.lowH} → ${renderer.width}×${renderer.height} · ${draw.counts.reduce((a, b) => a + b, 0)} parts drawn · fly ${cam.speed.toFixed(1)} m/s · ` +
+            `${renderer.lowW}×${renderer.lowH} → ${renderer.width}×${renderer.height} · ${draw.counts.reduce((a, b) => a + b, 0)} parts drawn · ${cam.walking ? 'walking' : `fly ${cam.speed.toFixed(1)} m/s`} · ` +
             `${cam.x.toFixed(1)}, ${cam.y.toFixed(1)}, ${cam.z.toFixed(1)}${cam.underwater() ? ' · underwater' : ''}`);
           hudT = hudN = worst = 0;
         }
@@ -251,6 +284,7 @@ async function main(): Promise<void> {
     ui.go.onclick = play;
     canvas.addEventListener('click', () => {
       if (!document.pointerLockElement) { play(); return; }
+      if (!lifeOn) return;
       select(life.pick([cam.x, cam.y, cam.z], cam.forward()));
       if (!selected) cam.follow = null;
     });
@@ -268,7 +302,12 @@ async function main(): Promise<void> {
         else if (e.code === 'Escape') exitHeadless();
         return;
       }
+      if (!lifeOn && ['KeyL', 'KeyV', 'KeyF', 'KeyN', 'KeyG'].includes(e.code)) return;
       if (e.code === 'KeyH') ui.toggleHud();
+      else if (e.code === 'KeyM') {
+        cam.setWalking(!cam.walking);
+        showToast(cam.walking ? 'Walking · WASD move · Shift run · E jump · M to fly' : 'Flying · E / Q up / down · M to walk');
+      }
       else if (e.code === 'KeyP') renderer.setPixel(!renderer.pixel);
       else if (e.code === 'KeyL') events.toggle();
       else if (e.code === 'KeyV') showOverlay(!chartsOverlay);

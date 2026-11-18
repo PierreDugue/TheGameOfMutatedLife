@@ -6,12 +6,22 @@ import type { Terrain } from '../world/terrain';
 
 const CLEARANCE = 0.08; // eye height above the ground at the lowest
 const FAST = 4;
+// walking: eye height, pace (m/s), running multiplier, gravity, jump take-off speed, highest step taken without falling
+const EYE = 1.6, WALK = 1.6, RUN = 2.6, GRAVITY = 9.8, JUMP = 3.6, STEP = 0.35;
+/** Swimming: the eye floats this far above the water surface, and moves at this share of the walking pace. */
+const SWIM_EYE = 0.25, SWIM = 0.5;
 
-/** Free-flying camera: smoothed mouse look, eased velocity, kept above the ground; it may dive under water. */
+/**
+ * First-person camera with two ways of moving: free flight (smoothed mouse look, eased velocity, kept above the
+ * ground, may dive under water) and walking (on the ground at eye height, with gravity, jumping and swimming).
+ */
 export class FlyCamera implements View {
   x = 0; y = 0; z = 0; yaw = 0; pitch = 0;
   speed = 6;
   enabled = false;
+  /** Walking on the ground instead of flying. */
+  walking = false;
+  private grounded = false;
   /** Orbit target while following an organism (null = free flight). Returning null ends the follow. */
   follow: (() => [number, number, number] | null) | null = null;
   /** Orbit distance in follow mode (m). */
@@ -62,6 +72,13 @@ export class FlyCamera implements View {
     this.vx = this.vy = this.vz = 0;
   }
 
+  /** Switches between walking and flying; walking starts with a fall to the ground from wherever the camera is. */
+  setWalking(on: boolean): void {
+    this.walking = on;
+    this.grounded = false;
+    this.vy = 0;
+  }
+
   /** Is the eye below the water surface? */
   underwater(): boolean {
     const w = this.T.waterAt(this.x, this.z);
@@ -90,6 +107,7 @@ export class FlyCamera implements View {
       return;
     }
     const mf = on('KeyW') - on('KeyS'), mr = on('KeyD') - on('KeyA'), mu = on('KeyE') - on('KeyQ');
+    if (this.walking) { this.walk(dt, mf, mr, k.has('ShiftLeft') || k.has('ShiftRight'), k.has('KeyE')); return; }
     let sp = (k.has('ShiftLeft') || k.has('ShiftRight') ? FAST : 1) * this.speed;
     if (this.underwater()) sp *= 0.4;
     const cp = Math.cos(this.pitch), sy = Math.sin(this.yaw), cy = Math.cos(this.yaw);
@@ -102,5 +120,35 @@ export class FlyCamera implements View {
     this.y = Math.min(this.y + this.vy * dt, 60);
     const floor = this.T.groundAt(this.x, this.z) + CLEARANCE;
     if (this.y < floor) { this.y = floor; this.vy = Math.max(this.vy, 0); }
+  }
+
+  /** Walking: moves along the ground in the looking direction (pitch ignored), falls, jumps and swims at the surface. */
+  private walk(dt: number, mf: number, mr: number, run: boolean, jump: boolean): void {
+    const ground = this.T.groundAt(this.x, this.z), w = this.T.waterAt(this.x, this.z);
+    const water = Number.isNaN(w) ? -Infinity : w;
+    const swimming = water > ground + EYE - SWIM_EYE; // too deep to stand: float with the head out
+    const n = Math.hypot(mf, mr) || 1;
+    let sp = (run ? RUN : 1) * WALK * (swimming ? SWIM : water > ground ? 0.7 : 1);
+    sp /= n;
+    const sy = Math.sin(this.yaw), cy = Math.cos(this.yaw);
+    const ke = 1 - Math.exp(-dt * (this.grounded || swimming ? 10 : 1.5)); // little control in the air
+    this.vx += ((sy * mf + cy * mr) * sp - this.vx) * ke;
+    this.vz += ((-cy * mf + sy * mr) * sp - this.vz) * ke;
+    this.x = clamp(this.x + this.vx * dt, -ROAM, ROAM);
+    this.z = clamp(this.z + this.vz * dt, -ROAM, ROAM);
+
+    const g = this.T.groundAt(this.x, this.z), wn = this.T.waterAt(this.x, this.z);
+    const stand = g + EYE, float = Number.isNaN(wn) ? -Infinity : wn + SWIM_EYE, rest = Math.max(stand, float);
+    if (this.grounded && jump && rest === stand) { this.vy = JUMP; this.grounded = false; }
+    if (this.grounded && this.vy <= 0 && this.y - rest < STEP) {
+      // on the ground: follow it up steps and down slopes without bouncing
+      this.y = rest; this.vy = 0;
+    } else {
+      this.vy -= GRAVITY * dt;
+      if (this.y < float) this.vy = Math.max(this.vy, -1) + (float - this.y) * 6 * dt; // buoyancy in deep water
+      this.y = Math.min(this.y + this.vy * dt, 60);
+      if (this.y <= rest) { this.y = rest; this.vy = 0; this.grounded = true; }
+      else this.grounded = false;
+    }
   }
 }

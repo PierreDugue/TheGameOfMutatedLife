@@ -11,7 +11,9 @@ export const SPEEDS = [0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 150, 300, 600];
 export const MAX_SPEED = 1e6;
 
 export type ToWorker =
-  | { t: 'init'; seed: number }
+  | { t: 'init'; seed: number; life: boolean }
+  /** Life off: the sun keeps moving but nothing is simulated or sent. */
+  | { t: 'life'; on: boolean }
   | { t: 'speed'; speed: number }
   | { t: 'pause'; paused: boolean }
   | { t: 'pressure'; value: number }
@@ -56,6 +58,8 @@ export interface Snapshot {
   /** Organisms alive (in lite snapshots `orgs` is empty) and whether this is a lite snapshot. */
   count: number;
   lite: boolean;
+  /** Whether life is simulated at all. */
+  life: boolean;
   /** Share of wall time the worker spent simulating (1 = never idle). */
   busy: number;
 }
