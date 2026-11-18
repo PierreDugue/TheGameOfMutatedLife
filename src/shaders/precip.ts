@@ -42,7 +42,8 @@ struct VOut {
     pos = p + side * corner.x * 0.012 - vel * corner.y * (0.35 + 0.25 * h.y);
   }
   var o: VOut;
-  o.clip = g.vp * vec4f(pos, 1.0);
+  // nothing falls under the cabin roof
+  o.clip = select(g.vp * vec4f(pos, 1.0), vec4f(0.0, 0.0, 0.0, 1.0), underRoof(p));
   o.uv = corner;
   let d = distance(p, g.cam.xyz);
   o.fade = (1.0 - smoothstep(B * 0.3, B * 0.5, d)) * smoothstep(1.2, 3.0, d);

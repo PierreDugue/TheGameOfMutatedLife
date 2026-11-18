@@ -8,6 +8,8 @@ export enum L {
   Grass, Dirt, Sand, Rock, Mud, Bark, Leaves, Needles, Willow, Blades, Flowers, Reed, Lily, LilyFlower, Bush, Berry, Water, Birch,
   /** Mushrooms (pale, tinted per mushroom); only drawn in fall. */
   Fungus,
+  /** The cabin: wall and floor boards, roof shingles, upholstery, and the fire (drawn by the shader, not the texture). */
+  Planks, Shingles, Fabric, Fire,
   Count,
 }
 
@@ -186,6 +188,27 @@ export function paintTextures(seed: number): Uint8Array[] {
   });
   // Fungus: pale flesh with light speckles (caps and stems get their colour from the vertex tint)
   fill((x, y) => (h(x, y, 34) > 0.9 ? C(0xfff8ec) : ramp([C(0xc8bca8), C(0xd6ccb8), C(0xe2d8c6)], tn(x, y, 4, seed + 35) * 0.6 + h(x, y, 36) * 0.4)));
+  // Planks: horizontal boards with dark seams, grain and the odd knot
+  const PL = [C(0x5a3a22), C(0x6e4a2c), C(0x805a36), C(0x926a40), C(0xa47a4c)];
+  fill((x, y) => {
+    if (y % 8 === 0) return C(0x2e1e12);
+    const board = y >> 3, shift = Math.floor(h(board, 0, 37) * TEX);
+    if ((x + shift) % TEX === 0) return C(0x3a2616); // butt joint
+    const grain = tn(x * 0.25, y * 2, 4, seed + 38) * 0.6 + h(board, 1, 39) * 0.3 + h(x, y, 40) * 0.1;
+    return h(x >> 1, y >> 1, 41) > 0.985 ? C(0x3e2818) : ramp(PL, grain);
+  });
+  // Shingles: overlapping rows of slate-grey tiles
+  const SH = [C(0x2e3036), C(0x3a3c44), C(0x464852), C(0x545660), C(0x62646e)];
+  fill((x, y) => {
+    const row = y >> 2, off = row & 1 ? 3 : 0;
+    if (y % 4 === 3) return C(0x1c1d22);
+    if ((x + off) % 6 === 0) return C(0x26272d);
+    return ramp(SH, h((x + off) / 6 | 0, row, 42) * 0.6 + h(x, y, 43) * 0.4);
+  });
+  // Fabric: woven pale cloth (tinted per piece)
+  fill((x, y) => ramp([C(0xb8b0a8), C(0xc8c0b8), C(0xd8d0c8), C(0xe4dcd4)], ((x + y) & 1) * 0.35 + ((x ^ y) & 2 ? 0.2 : 0) + h(x, y, 44) * 0.45));
+  // Fire: opaque white; the shader draws the flames
+  fill(() => C(0xffffff));
   return layers;
 }
 

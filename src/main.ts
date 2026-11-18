@@ -9,6 +9,7 @@ import { LifeClient } from './life/client';
 import { LifeDraw } from './life/draw';
 import { MAX_SPEED, SPEEDS } from './life/protocol';
 import { MAX_PARTICLES } from './life/environment';
+import { House } from './world/house';
 import { makeLayout, type Pose } from './world/layout';
 import { scatter } from './world/scatter';
 import { SEASONS, Seasons, type SeasonMode } from './world/season';
@@ -80,7 +81,8 @@ async function main(): Promise<void> {
     await ui.progress('Growing trees and grass…', 0.6);
     t0 = performance.now();
     const POSES = poses(T);
-    const S = scatter(T, seed, POSES.map((p) => [p[0], p[2], 2.5]));
+    const house = new House(T, POSES.map((p) => [p[0], p[2]]));
+    const S = scatter(T, seed, POSES.map((p) => [p[0], p[2], 2.5]), [house.cx, house.cz, house.clearR]);
     console.info(`scatter: ${(performance.now() - t0).toFixed(0)} ms, solid ${S.solid.nv} v, cutout ${S.cutout.nv} v`, S.counts);
 
     await ui.progress('Stirring the primordial soup…', 0.8);
@@ -91,7 +93,7 @@ async function main(): Promise<void> {
     console.info(`life worker ready: ${(performance.now() - t0).toFixed(0)} ms`);
 
     await ui.progress('Lighting the sun…', 0.9);
-    const renderer = new Renderer(gpu, { terrain, solid: S.solid, cutout: S.cutout, water }, atlas);
+    const renderer = new Renderer(gpu, { terrain, solid: S.solid, cutout: S.cutout, water, houseSolid: house.solid, houseCutout: house.cutout }, atlas);
     const cam = new FlyCamera(T, canvas);
     const sky = new DayNight();
     // seasons: follow the calendar (auto) or stay pinned to one, from the menu, K, or ?season=… in the URL
@@ -267,6 +269,23 @@ async function main(): Promise<void> {
         for (const o of document.querySelectorAll('.pressure button')) o.classList.toggle('on', o === b);
       };
     }
+    // the cabin: off by default, from the menu or ?house=1; key 6 goes inside by the fire
+    const houseBtn = document.getElementById('houseToggle') as HTMLButtonElement;
+    let houseOn = false;
+    const setHouse = (on: boolean): void => {
+      houseOn = on;
+      renderer.setHouse(house.uniforms(on));
+      cam.house = on ? house : null;
+      houseBtn.textContent = on ? 'House: on' : 'House: off';
+      houseBtn.classList.toggle('on', on);
+      setParam('house', on ? '1' : null);
+    };
+    houseBtn.onclick = () => setHouse(!houseOn);
+    setHouse(new URLSearchParams(location.search).get('house') === '1');
+    const insidePose = (): Pose => {
+      const [ex, ez] = house.world(0.2, 1.9), f = house.firePos();
+      return [ex, house.floor + 1.6 - T.groundAt(ex, ez), ez, f[0], f[1] + 0.3, f[2]];
+    };
     const lifeBtn = document.getElementById('lifeToggle') as HTMLButtonElement;
     const setLife = (on: boolean): void => {
       lifeOn = on;
@@ -286,7 +305,7 @@ async function main(): Promise<void> {
     lifeBtn.classList.toggle('on', lifeOn);
 
     if (import.meta.env.DEV) {
-      Object.assign(window, { life: { cam, renderer, T, sky, POSES, S, client: life, draw } });
+      Object.assign(window, { life: { cam, renderer, T, sky, POSES, S, client: life, draw, house, insidePose } });
       void import('./dev/evo').then((m) => m.installEvo(T));
     }
 
@@ -401,7 +420,8 @@ async function main(): Promise<void> {
       else if (e.code === 'BracketLeft') life.send({ t: 'hour', delta: -1 });
       else if (e.code === 'BracketRight') life.send({ t: 'hour', delta: 1 });
       else if (/^Digit[1-9]$/.test(e.code)) {
-        const p = POSES[e.code.charCodeAt(5) - 49];
+        const i = e.code.charCodeAt(5) - 49;
+        const p = i === 5 && houseOn ? insidePose() : POSES[i];
         if (p) cam.pose(p);
       }
     });

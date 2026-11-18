@@ -41,13 +41,18 @@ const WATER_LAYOUT: GPUVertexBufferLayout = {
   arrayStride: 24, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }],
 };
 
-export interface SceneMeshes { terrain: Mesh | { vb: Float32Array<ArrayBuffer>; ib: Uint32Array<ArrayBuffer> }; solid: Mesh; cutout: Mesh; water: { vb: Float32Array<ArrayBuffer>; ib: Uint32Array<ArrayBuffer> } }
+export interface SceneMeshes {
+  terrain: Mesh | { vb: Float32Array<ArrayBuffer>; ib: Uint32Array<ArrayBuffer> }; solid: Mesh; cutout: Mesh;
+  water: { vb: Float32Array<ArrayBuffer>; ib: Uint32Array<ArrayBuffer> };
+  /** The cabin, drawn only while it is switched on. */
+  houseSolid: Mesh; houseCutout: Mesh;
+}
 
 export class Renderer {
   private readonly device: GPUDevice;
   private readonly ub: GPUBuffer;
   private readonly u = new Float32Array(UB_FLOATS);
-  private readonly geo: Record<'terrain' | 'solid' | 'cutout' | 'water', Geo>;
+  private readonly geo: Record<'terrain' | 'solid' | 'cutout' | 'water' | 'houseSolid' | 'houseCutout', Geo>;
   private readonly shadowTex: GPUTexture;
   private readonly sceneBG: GPUBindGroup;
   private readonly shadowBG: GPUBindGroup;
@@ -76,6 +81,10 @@ export class Renderer {
   /** Weather uniforms (see Frame.weather) and the number of rain / snow particles to draw. */
   readonly weather = new Float32Array(12);
   precipCount = 0;
+  /** House uniforms (see Frame.house); index 10 is the on flag. */
+  readonly house = new Float32Array(12);
+  get houseOn(): boolean { return this.house[10] > 0.5; }
+  setHouse(values: number[]): void { this.house.set(values); this.shadowDirty = true; }
 
   constructor(private readonly gpu: GPU, meshes: SceneMeshes, atlas: GPUTexture) {
     const d = (this.device = gpu.device);
@@ -83,7 +92,10 @@ export class Renderer {
     const up = (m: { vb: Float32Array<ArrayBuffer>; ib: Uint32Array<ArrayBuffer> }): Geo => ({
       vb: createBuffer(d, m.vb, GPUBufferUsage.VERTEX), ib: createBuffer(d, m.ib, GPUBufferUsage.INDEX), count: m.ib.length,
     });
-    this.geo = { terrain: up(meshes.terrain), solid: up(meshes.solid), cutout: up(meshes.cutout), water: up(meshes.water) };
+    this.geo = {
+      terrain: up(meshes.terrain), solid: up(meshes.solid), cutout: up(meshes.cutout), water: up(meshes.water),
+      houseSolid: up(meshes.houseSolid), houseCutout: up(meshes.houseCutout),
+    };
 
     this.shadowTex = d.createTexture({ size: [SHADOW_SIZE, SHADOW_SIZE], format: DEPTH, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
     const samp = d.createSampler({ magFilter: 'nearest', minFilter: 'nearest', mipmapFilter: 'nearest', addressModeU: 'repeat', addressModeV: 'repeat', maxAnisotropy: 1 });
@@ -332,7 +344,7 @@ export class Renderer {
     }
     writeGlobals(this.u, {
       view, time, light, lowW: this.lowW, lowH: this.lowH, canvasW: this.width, canvasH: this.height,
-      underwater, pixel: this.pixel, levels: LEVELS, fog: 0.0035 + this.weather[2] * 0.06, season: this.season, weather: this.weather,
+      underwater, pixel: this.pixel, levels: LEVELS, fog: 0.0035 + this.weather[2] * 0.06, season: this.season, weather: this.weather, house: this.house,
     }, this.shadowM);
     d.queue.writeBuffer(this.ub, 0, this.u);
 
@@ -347,6 +359,7 @@ export class Renderer {
       this.draw(p, 'shTerrain', this.geo.terrain);
       this.draw(p, 'shSolid', this.geo.solid);
       this.draw(p, 'shCutout', this.geo.cutout);
+      if (this.houseOn) { this.draw(p, 'shSolid', this.geo.houseSolid); this.draw(p, 'shCutout', this.geo.houseCutout); }
       p.end();
     }
 
@@ -359,6 +372,7 @@ export class Renderer {
     this.draw(p, 'terrain', this.geo.terrain);
     this.draw(p, 'solid', this.geo.solid);
     this.draw(p, 'cutout', this.geo.cutout);
+    if (this.houseOn) { this.draw(p, 'solid', this.geo.houseSolid); this.draw(p, 'cutout', this.geo.houseCutout); }
     this.drawLife(p, 'cells');
     this.drawCreatures(p);
     p.end();

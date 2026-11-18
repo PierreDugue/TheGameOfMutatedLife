@@ -20,6 +20,9 @@ struct G {
   weather: vec4f,  // precipitation, snow share, fog, wind (0..1)
   drift: vec4f,    // precipitation particles: drift x, z, fall (m, wrapped), -
   wind: vec4f,     // wind direction x, z; cloud scroll x, z
+  house0: vec4f,   // centre x, z, cos, sin of its rotation
+  house1: vec4f,   // half size x, z, floor height, eave height
+  house2: vec4f,   // ridge height, roof overhang, on 0/1, -
 };
 @group(0) @binding(0) var<uniform> g: G;
 `;
@@ -63,6 +66,49 @@ fn bayer(p: vec2f) -> f32 {
 }
 `;
 
+/** The cabin: tests in its own space (x along the ridge, z toward the door). Needs only the globals. */
+export const HOUSE = /* wgsl */ `
+fn houseLocal(p: vec3f) -> vec3f {
+  let d = p.xz - g.house0.xy;
+  return vec3f(d.x * g.house0.z + d.y * g.house0.w, p.y, -d.x * g.house0.w + d.y * g.house0.z);
+}
+/** Under the roof (including its overhang), above the foundations: rain and snow can't reach here. */
+fn underRoof(p: vec3f) -> bool {
+  if (g.house2.z < 0.5) { return false; }
+  let q = houseLocal(p);
+  let ov = g.house2.y;
+  let roof = g.house2.x - (g.house2.x - g.house1.w) * abs(q.z) / g.house1.y;
+  return abs(q.x) < g.house1.x + ov && abs(q.z) < g.house1.y + ov && p.y < roof && p.y > g.house1.z - 1.0;
+}
+/** Inside the walls (floor to ridge). */
+fn indoors(p: vec3f) -> bool {
+  if (g.house2.z < 0.5) { return false; }
+  let q = houseLocal(p);
+  return abs(q.x) < g.house1.x - 0.05 && abs(q.z) < g.house1.y - 0.05 && p.y > g.house1.z - 0.2 && p.y < g.house2.x;
+}
+/** Within the house footprint, at any height (grass under the floor is hidden). */
+fn onFootprint(p: vec3f) -> bool {
+  if (g.house2.z < 0.5) { return false; }
+  let q = houseLocal(p);
+  return abs(q.x) < g.house1.x + 0.15 && abs(q.z) < g.house1.y + 0.15;
+}
+/** The fire, in world space. */
+fn firePos() -> vec3f {
+  let l = vec2f(0.0, -g.house1.y + 0.6);
+  return vec3f(g.house0.x + l.x * g.house0.z - l.y * g.house0.w, g.house1.z + 0.35, g.house0.y + l.x * g.house0.w + l.y * g.house0.z);
+}
+/** Flickering firelight inside the cabin: warm, falling off with distance, no shadows. */
+fn fireLight(n: vec3f, p: vec3f) -> vec3f {
+  if (!indoors(p)) { return vec3f(0.0); }
+  let t = g.cam.w;
+  let flick = 0.85 + 0.1 * sin(t * 11.0) + 0.07 * sin(t * 17.3 + 1.0) + 0.05 * sin(t * 5.1);
+  let v = firePos() - p;
+  let d2 = dot(v, v);
+  let l = v * inverseSqrt(max(d2, 1e-4));
+  return vec3f(1.0, 0.5, 0.2) * 3.0 * flick * (max(dot(n, l), 0.0) * 0.8 + 0.2) / (1.0 + d2 * 0.9);
+}
+`;
+
 /** Seasonal looks, driven by g.season = (spring, summer, fall, winter) weights. Needs NOISE. */
 export const SEASON = /* wgsl */ `
 fn lum(c: vec3f) -> f32 { return dot(c, vec3f(0.3, 0.59, 0.11)); }
@@ -70,7 +116,7 @@ fn lum(c: vec3f) -> f32 { return dot(c, vec3f(0.3, 0.59, 0.11)); }
 /** Snow lies here: patches spread as winter deepens, only on fairly flat, upward-facing surfaces. */
 fn snowAt(p: vec3f, n: vec3f, px: vec2f) -> bool {
   let w = g.season.w;
-  if (w < 0.01 || n.y < 0.5) { return false; }
+  if (w < 0.01 || n.y < 0.5 || underRoof(p + vec3f(0.0, 0.05, 0.0))) { return false; }
   let k = vnoise(p.xz * 0.35) * 0.6 + vnoise(p.xz * 2.7) * 0.4 + (bayer(px) - 0.5) * 0.15;
   return k < w * 1.3 * smoothstep(0.5, 0.8, n.y) - 0.08;
 }
@@ -107,6 +153,7 @@ fn grassSeason(c: vec3f) -> vec3f {
 
 export const LIGHTING = /* wgsl */ `
 ${NOISE}
+${HOUSE}
 ${SEASON}
 /** Texture coordinates projected from world space on the dominant axis of the normal (side faces keep v vertical). */
 fn projUV(p: vec3f, n: vec3f) -> vec2f {
@@ -129,8 +176,8 @@ fn sunShadow(p: vec3f, n: vec3f) -> f32 {
 fn shade(albedo: vec3f, n: vec3f, p: vec3f, ao: f32) -> vec3f {
   let ndl = max(dot(n, g.sunDir.xyz), 0.0);
   let sh = select(1.0, sunShadow(p, n), ndl > 0.0);
-  let amb = mix(g.ambGnd.rgb, g.ambSky.rgb, n.y * 0.5 + 0.5);
-  return albedo * (g.sunCol.rgb * ndl * sh + amb * ao);
+  let amb = mix(g.ambGnd.rgb, g.ambSky.rgb, n.y * 0.5 + 0.5) * select(1.0, 0.3, indoors(p));
+  return albedo * (g.sunCol.rgb * ndl * sh + amb * ao + fireLight(n, p));
 }
 
 /** Sky radiance in direction d (no clouds or stars: those are drawn by the post pass). */
@@ -147,7 +194,8 @@ fn skyColor(d: vec3f) -> vec3f {
 fn fog(c: vec3f, p: vec3f) -> vec3f {
   let v = p - g.cam.xyz;
   let d = length(v);
-  let f = 1.0 - exp(-d * g.ambGnd.w);
+  // fog stays outdoors: a surface inside the cabin only gets a trace of it
+  let f = (1.0 - exp(-d * g.ambGnd.w)) * select(1.0, 0.1, indoors(p));
   return mix(c, skyColor(vec3f(v.x, max(v.y, 0.0), v.z) / d), f * (1.0 - g.zenith.w));
 }
 `;

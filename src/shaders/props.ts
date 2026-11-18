@@ -1,5 +1,5 @@
 import { L } from '../world/textures';
-import { LIGHTING, NOISE, SCENE_BINDINGS, SHADOW_BINDINGS } from './common';
+import { HOUSE, LIGHTING, NOISE, SCENE_BINDINGS, SHADOW_BINDINGS } from './common';
 
 const VS_IN = /* wgsl */ `
 struct VIn {
@@ -73,12 +73,30 @@ fn cutLayer(layer: i32, p: vec3f) -> i32 {
 }
 /** Grass cards are buried where snow lies. */
 fn buried(layer: i32, p: vec3f, px: vec2f) -> bool {
-  return (layer == ${L.Blades} || layer == ${L.Flowers}) && snowAt(p, vec3f(0.0, 1.0, 0.0), px);
+  return (layer == ${L.Blades} || layer == ${L.Flowers}) && (snowAt(p, vec3f(0.0, 1.0, 0.0), px) || onFootprint(p));
+}
+
+/** Flames: licking noise tongues scrolling upward, hottest at the base, drawn unlit and bright. */
+fn flame(uv: vec2f, p: vec3f) -> vec4f {
+  let t = g.cam.w;
+  let h = 1.0 - uv.y;
+  let n = vnoise(vec2f(uv.x * 7.0 + p.x * 3.0, h * 5.0 - t * 4.0)) * 0.6 + vnoise(vec2f(uv.x * 15.0, h * 9.0 - t * 7.0)) * 0.4;
+  let k = n * 1.1 - h * 1.15 - abs(uv.x - 0.5) * 1.6 + 0.45;
+  if (k < 0.08) { return vec4f(0.0); }
+  var c = vec3f(2.4, 0.5, 0.1);
+  if (k > 0.22) { c = vec3f(4.0, 1.6, 0.3); }
+  if (k > 0.4) { c = vec3f(5.0, 3.6, 1.4); }
+  return vec4f(c, 1.0);
 }
 
 @fragment fn fsCutout(i: VOut) -> @location(0) vec4f {
   let layer = cutLayer(i.layer, i.p);
   var t = textureSample(atlas, samp, i.uv, layer);
+  if (layer == ${L.Fire}) {
+    let f = flame(i.uv, i.p);
+    if (f.a < 0.5) { discard; }
+    return vec4f(f.rgb, 1.0);
+  }
   if (t.a < 0.5 || buried(layer, i.p, i.clip.xy)) { discard; }
   if (layer == ${L.Willow}) { t = vec4f(foliage(t.rgb, i.p), t.a); }
   else if (layer == ${L.Blades} || layer == ${L.Flowers} || layer == ${L.Reed}) { t = vec4f(grassSeason(t.rgb), t.a); }
@@ -93,6 +111,7 @@ fn buried(layer: i32, p: vec3f, px: vec2f) -> bool {
 export const PROPS_SHADOW_WGSL = /* wgsl */ `
 ${SHADOW_BINDINGS}
 ${NOISE}
+${HOUSE}
 ${VS_IN}
 struct SOut { @builtin(position) clip: vec4f, @location(0) uv: vec2f, @location(1) @interpolate(flat) layer: i32, @location(2) pos: vec3f };
 @vertex fn vs(v: VIn) -> SOut {
@@ -107,6 +126,7 @@ struct SOut { @builtin(position) clip: vec4f, @location(0) uv: vec2f, @location(
   let buried = (layer == ${L.Blades} || layer == ${L.Flowers}) && g.season.w > 0.01
     && vnoise(i.pos.xz * 0.35) * 0.6 + vnoise(i.pos.xz * 2.7) * 0.4 < g.season.w * 1.3 - 0.08;
   let a = textureSample(atlas, samp, i.uv, i.layer).a;
-  if (buried || a < 0.5) { discard; }
+  let hidden = layer == ${L.Fire} || ((layer == ${L.Blades} || layer == ${L.Flowers}) && onFootprint(i.pos));
+  if (buried || hidden || a < 0.5) { discard; }
 }
 `;

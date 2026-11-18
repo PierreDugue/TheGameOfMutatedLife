@@ -41,14 +41,17 @@ export interface Scatter { solid: Mesh; cutout: Mesh; counts: Record<string, num
 
 /** Places every static plant and rock in the valley. */
 /** `clear`: spots (x, z, radius) kept free of trees and bushes, e.g. around the preset viewpoints. */
-export function scatter(T: Terrain, seed: number, clear: [number, number, number][] = []): Scatter {
+/** `keepOut`: a spot (x, z, radius) also kept free of rocks and mushrooms (the cabin site; grass is hidden by shader). */
+export function scatter(T: Terrain, seed: number, clear: [number, number, number][] = [], keepOut: [number, number, number] | null = null): Scatter {
   const rng = new Rng(seed ^ 0x5ca7), solid = new MeshBuilder(), cut = new MeshBuilder();
   const counts: Record<string, number> = { trees: 0, bushes: 0, rocks: 0, grass: 0, reeds: 0, lilies: 0, mushrooms: 0 };
   const EXT = HALF - 4;
   const slope = (x: number, z: number): number => 1 - T.normalAt(x, z)[1];
   const edge = (x: number, z: number): number => Math.max(Math.abs(x), Math.abs(z)) * 0.75 + Math.hypot(x, z) * 0.25;
   const forest = (x: number, z: number): number => fbm(x * 0.03, z * 0.03, seed + 40, 3);
+  if (keepOut) clear = [...clear, keepOut];
   const blocked = (x: number, z: number, r: number): boolean => clear.some(([cx, cz, cr]) => (x - cx) ** 2 + (z - cz) ** 2 < (cr + r) ** 2);
+  const out = (x: number, z: number, r: number): boolean => !!keepOut && (x - keepOut[0]) ** 2 + (z - keepOut[1]) ** 2 < (keepOut[2] + r) ** 2;
 
   // ---- trees ----
   const tr = rng.fork(1);
@@ -81,6 +84,7 @@ export function scatter(T: Terrain, seed: number, clear: [number, number, number
   // ---- rocks ----
   const rr = rng.fork(3);
   const rock = (x: number, z: number, r: number): void => {
+    if (out(x, z, r)) return;
     solid.layer = L.Rock;
     const g = rr.range(0.75, 1.1);
     solid.tint = [g * rr.range(0.95, 1.1), g, g * rr.range(0.85, 1)]; solid.ao = 1;
@@ -109,7 +113,7 @@ export function scatter(T: Terrain, seed: number, clear: [number, number, number
   const CAPS: V3[] = [[0.78, 0.52, 0.32], [1.0, 0.86, 0.62], [0.95, 0.68, 0.3], [0.55, 0.36, 0.22]];
   for (let n = 0; n < 700; n++) {
     const cx = mu.range(-EXT, EXT), cz = mu.range(-EXT, EXT);
-    if (T.shoreDist(cx, cz) < 1.5 || slope(cx, cz) > 0.3 || mu.next() > smoothstep(-0.15, 0.35, forest(cx, cz))) continue;
+    if (out(cx, cz, 1) || T.shoreDist(cx, cz) < 1.5 || slope(cx, cz) > 0.3 || mu.next() > smoothstep(-0.15, 0.35, forest(cx, cz))) continue;
     const cap = mu.chance(0.15) ? [1.1, 0.22, 0.14] as V3 : mu.pick(CAPS), comes = mu.range(0.1, 0.75), k = mu.int(1, 5);
     for (let c = 0; c < k; c++) {
       const x = cx + (c ? mu.range(-0.6, 0.6) : 0), z = cz + (c ? mu.range(-0.6, 0.6) : 0), y = T.groundAt(x, z) - 0.02;

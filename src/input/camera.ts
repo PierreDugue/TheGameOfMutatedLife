@@ -2,6 +2,7 @@ import { ROAM } from '../config';
 import { clamp } from '../core/math';
 import type { View } from '../render/uniforms';
 import type { Pose } from '../world/layout';
+import type { House } from '../world/house';
 import type { Terrain } from '../world/terrain';
 
 const CLEARANCE = 0.08; // eye height above the ground at the lowest
@@ -21,6 +22,8 @@ export class FlyCamera implements View {
   enabled = false;
   /** Walking on the ground instead of flying. */
   walking = false;
+  /** The cabin when it is switched on: its floor is ground, its walls stop the walker. */
+  house: House | null = null;
   private grounded = false;
   /** Orbit target while following an organism (null = free flight). Returning null ends the follow. */
   follow: (() => [number, number, number] | null) | null = null;
@@ -72,6 +75,12 @@ export class FlyCamera implements View {
     this.vx = this.vy = this.vz = 0;
   }
 
+  /** Ground height, the cabin floor included. */
+  private ground(x: number, z: number): number {
+    const g = this.T.groundAt(x, z), f = this.house?.floorAt(x, z);
+    return f == null ? g : Math.max(g, f);
+  }
+
   /** Switches between walking and flying; walking starts with a fall to the ground from wherever the camera is. */
   setWalking(on: boolean): void {
     this.walking = on;
@@ -118,13 +127,13 @@ export class FlyCamera implements View {
     this.x = clamp(this.x + this.vx * dt, -ROAM, ROAM);
     this.z = clamp(this.z + this.vz * dt, -ROAM, ROAM);
     this.y = Math.min(this.y + this.vy * dt, 60);
-    const floor = this.T.groundAt(this.x, this.z) + CLEARANCE;
+    const floor = this.ground(this.x, this.z) + CLEARANCE;
     if (this.y < floor) { this.y = floor; this.vy = Math.max(this.vy, 0); }
   }
 
   /** Walking: moves along the ground in the looking direction (pitch ignored), falls, jumps and swims at the surface. */
   private walk(dt: number, mf: number, mr: number, run: boolean, jump: boolean): void {
-    const ground = this.T.groundAt(this.x, this.z), w = this.T.waterAt(this.x, this.z);
+    const ground = this.ground(this.x, this.z), w = this.T.waterAt(this.x, this.z);
     const water = Number.isNaN(w) ? -Infinity : w;
     const swimming = water > ground + EYE - SWIM_EYE; // too deep to stand: float with the head out
     const n = Math.hypot(mf, mr) || 1;
@@ -136,8 +145,9 @@ export class FlyCamera implements View {
     this.vz += ((-cy * mf + sy * mr) * sp - this.vz) * ke;
     this.x = clamp(this.x + this.vx * dt, -ROAM, ROAM);
     this.z = clamp(this.z + this.vz * dt, -ROAM, ROAM);
+    if (this.house) [this.x, this.z] = this.house.collide(this.x, this.z, this.y - EYE);
 
-    const g = this.T.groundAt(this.x, this.z), wn = this.T.waterAt(this.x, this.z);
+    const g = this.ground(this.x, this.z), wn = this.T.waterAt(this.x, this.z);
     const stand = g + EYE, float = Number.isNaN(wn) ? -Infinity : wn + SWIM_EYE, rest = Math.max(stand, float);
     if (this.grounded && jump && rest === stand) { this.vy = JUMP; this.grounded = false; }
     if (this.grounded && this.vy <= 0 && this.y - rest < STEP) {

@@ -2,7 +2,7 @@ import { HALF } from '../config';
 import type { Light } from '../world/sky';
 
 // Global uniform block (struct G in shaders/common.ts).
-export const UB_FLOATS = 96;
+export const UB_FLOATS = 108;
 export const TAN_HALF_FOV = 0.62;
 export const NEAR = 0.05;
 /** World box the shadow map is fitted around (y range). */
@@ -20,6 +20,8 @@ export interface Frame {
   season: [number, number, number, number];
   /** Weather: precip, snow, fog, wind · drift x, z, fall, 0 · wind dir x, z, cloud scroll x, z. */
   weather: ArrayLike<number>;
+  /** House: centre x, z, cos, sin · half x, half z, floor, eave · ridge, overhang, on, 0. */
+  house: ArrayLike<number>;
 }
 
 /** Orthographic projection along the light fitted around the world box; depth 0 nearest the light. */
@@ -71,4 +73,5 @@ export function writeGlobals(m: Float32Array, F: Frame, shadowM: Float32Array): 
   m.set([F.lowW, F.lowH, F.canvasW, F.canvasH], 76);
   m.set(F.season, 80);
   m.set(F.weather, 84);
+  m.set(F.house, 96);
 }
