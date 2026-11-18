@@ -13,6 +13,7 @@ import { makeLayout, type Pose } from './world/layout';
 import { scatter } from './world/scatter';
 import { SEASONS, Seasons, type SeasonMode } from './world/season';
 import { DayNight } from './world/sky';
+import { TOGGLES, Weather, type Toggle } from './world/weather';
 import { Terrain } from './world/terrain';
 import { uploadTextures } from './world/textures';
 import { waterMesh } from './world/water';
@@ -106,9 +107,36 @@ async function main(): Promise<void> {
     };
     for (const b of seasonBtns) b.onclick = () => setSeason(b.dataset.s as SeasonMode);
     setSeason(seasons.mode);
+    // weather: auto (by season, rolled from the seed) or each part forced on / off, from the menu or ?rain= ?fog= ?wind=
+    const weather = new Weather(seed);
+    type Part = 'rain' | 'fog' | 'wind';
+    const modeKey = { rain: 'precipMode', fog: 'fogMode', wind: 'windMode' } as const;
+    const weatherBtns = [...document.querySelectorAll<HTMLButtonElement>('.weather button')];
+    const labelWeather = (): void => {
+      for (const b of weatherBtns) {
+        const part = b.dataset.w as Part, m = weather[modeKey[part]];
+        const name = part === 'rain' ? (seasons.name === 'winter' ? 'Snow' : 'Rain') : part === 'fog' ? 'Fog' : 'Wind';
+        b.textContent = `${name}: ${m}`;
+        b.classList.toggle('on', m !== 'auto');
+      }
+    };
+    const setWeather = (part: Part, m: Toggle): void => {
+      weather[modeKey[part]] = m;
+      setParam(part, m === 'auto' ? null : m);
+      labelWeather();
+    };
+    for (const b of weatherBtns) b.onclick = () => {
+      const part = b.dataset.w as Part;
+      setWeather(part, TOGGLES[(TOGGLES.indexOf(weather[modeKey[part]]) + 1) % TOGGLES.length]);
+    };
+    for (const part of ['rain', 'fog', 'wind'] as Part[]) {
+      const v = new URLSearchParams(location.search).get(part) as Toggle | null;
+      setWeather(part, v && TOGGLES.includes(v) ? v : 'auto');
+    }
     const seasonLabel = (): string => {
       const n = seasons.name;
-      return `${n[0].toUpperCase()}${n.slice(1)}${seasons.mode === 'auto' ? '' : ' (pinned)'}`;
+      const w = weather.label();
+      return `${n[0].toUpperCase()}${n.slice(1)}${seasons.mode === 'auto' ? '' : ' (pinned)'}${w ? ` · ${w}` : ''}`;
     };
     cam.pose(POSES[0]);
     addEventListener('resize', () => renderer.resize());
@@ -273,8 +301,17 @@ async function main(): Promise<void> {
         return;
       }
       sky.hour = snap.hour; sky.update(0);
-      seasons.update(snap.day + snap.hour / 24, dt);
+      const days = snap.day + snap.hour / 24;
+      seasons.update(days, dt);
       renderer.season = seasons.w;
+      weather.update(days, seasons.w, dt);
+      weather.dim(sky.light);
+      renderer.weather.set([
+        weather.precip, weather.snow, weather.fog, weather.wind,
+        weather.drift[0], weather.drift[1], weather.fall, 0,
+        Math.cos(weather.heading), Math.sin(weather.heading), weather.cloud[0], weather.cloud[1],
+      ]);
+      renderer.precipCount = Math.round(weather.precip * (weather.snow > 0.5 ? 18000 : 14000));
       cam.update(dt);
       if (lifeOn) {
         const pxPerRad = renderer.lowH / (2 * 0.62);
@@ -290,6 +327,7 @@ async function main(): Promise<void> {
         const req = snap.requested, act = snap.actual;
         const speedTxt = snap.paused ? '<span class="warn">paused</span>'
           : `×${req}${act < req * 0.9 ? ` requested · <span class="warn">×${act.toFixed(0)} actual</span>` : ''}${act >= 30 ? ` · ${(act / 600).toFixed(2)} days/s` : ''}`;
+        labelWeather();
         const top = snap.species.slice(0, 4).map((sp) => `<span class="sp" style="color:${hueCss(sp.hue)}">${esc(sp.name)}</span> ${sp.count}`).join(' · ');
         if (!lifeOn) lifeBar(`${clock(snap.time, snap.hour, snap.day + 1)} · ${seasonLabel()}${snap.sunPaused ? ' (sun paused)' : ''} · ${speedTxt}`);
         else lifeBar(`${clock(snap.time, snap.hour, snap.day + 1)} · ${seasonLabel()}${snap.sunPaused ? ' (sun paused)' : ''} · ${speedTxt}${snap.event ? ` · <span class="warn">${esc(snap.event)}</span>` : ''}\n` +

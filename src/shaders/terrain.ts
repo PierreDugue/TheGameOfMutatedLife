@@ -56,6 +56,7 @@ fn caustics(p: vec2f, t: f32) -> f32 {
 
   // wet margin, algae on the bed
   albedo *= select(1.0, 0.7, depth > -0.18);
+  albedo *= 1.0 - 0.3 * g.weather.x * (1.0 - g.weather.y); // wet ground in the rain
   if (depth < -0.05 && snowAt(i.p, n, i.clip.xy)) { albedo = snowAlbedo(i.p); }
   let algae = step(0.62, vnoise(i.p.xz * 0.6) * 0.7 + vnoise(i.p.xz * 3.1) * 0.3) * step(0.3, depth);
   albedo = mix(albedo, albedo * vec3f(0.45, 0.95, 0.35) + vec3f(0.0, 0.03, 0.0), algae);

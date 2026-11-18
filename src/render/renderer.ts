@@ -6,6 +6,7 @@ import { TERRAIN_SHADOW_WGSL, TERRAIN_WGSL } from '../shaders/terrain';
 import { WATER_WGSL } from '../shaders/water';
 import { CELLS_WGSL, HALO_WGSL } from '../shaders/life';
 import { CREATURES_WGSL } from '../shaders/creatures';
+import { PRECIP_WGSL } from '../shaders/precip';
 import { primitiveMeshes, PRIM } from '../life/draw';
 import type { Mesh } from '../world/meshkit';
 import type { Light } from '../world/sky';
@@ -72,6 +73,9 @@ export class Renderer {
   season: [number, number, number, number] = [1, 0, 0, 0];
   /** Season the shadow map was last drawn for (mushrooms come and go, snow hides grass). */
   private shadowSeason = [1, 0, 0, 0];
+  /** Weather uniforms (see Frame.weather) and the number of rain / snow particles to draw. */
+  readonly weather = new Float32Array(12);
+  precipCount = 0;
 
   constructor(private readonly gpu: GPU, meshes: SceneMeshes, atlas: GPUTexture) {
     const d = (this.device = gpu.device);
@@ -165,6 +169,21 @@ export class Renderer {
       fragment: {
         module: haloM, entryPoint: 'fs', targets: [{
           format: HDR, blend: { color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }, alpha: { srcFactor: 'zero', dstFactor: 'one', operation: 'add' } },
+        }],
+      },
+      primitive: { topology: 'triangle-list', cullMode: 'none' },
+      depthStencil: { format: DEPTH, depthWriteEnabled: false, depthCompare: 'greater' },
+    });
+    const precipM = mod(PRECIP_WGSL, 'precip');
+    this.pipes.precip = d.createRenderPipeline({
+      label: 'precip', layout: sceneL,
+      vertex: { module: precipM, entryPoint: 'vs' },
+      fragment: {
+        module: precipM, entryPoint: 'fs', targets: [{
+          format: HDR, blend: {
+            color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+            alpha: { srcFactor: 'zero', dstFactor: 'one', operation: 'add' },
+          },
         }],
       },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
@@ -313,7 +332,7 @@ export class Renderer {
     }
     writeGlobals(this.u, {
       view, time, light, lowW: this.lowW, lowH: this.lowH, canvasW: this.width, canvasH: this.height,
-      underwater, pixel: this.pixel, levels: LEVELS, fog: 0.0035, season: this.season,
+      underwater, pixel: this.pixel, levels: LEVELS, fog: 0.0035 + this.weather[2] * 0.06, season: this.season, weather: this.weather,
     }, this.shadowM);
     d.queue.writeBuffer(this.ub, 0, this.u);
 
@@ -352,6 +371,10 @@ export class Renderer {
     w.setBindGroup(1, this.waterBG);
     this.draw(w, 'water', this.geo.water);
     this.drawLife(w, 'halo');
+    if (this.precipCount > 0 && !underwater) {
+      w.setPipeline(this.pipes.precip);
+      w.draw(6, this.precipCount);
+    }
     w.end();
 
     const frame = this.gpu.context.getCurrentTexture();

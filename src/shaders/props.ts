@@ -16,8 +16,12 @@ fn seasonal(v: VIn) -> bool {
 }
 /** Wind: a gusting sway that travels across the valley. */
 fn wind(p: vec3f, t: f32) -> vec3f {
+  let w = g.weather.w;
   let gust = 0.6 + 0.4 * sin(t * 0.35 + p.x * 0.05);
-  return vec3f(sin(t * 1.9 + p.x * 0.45 + p.z * 0.3), 0.0, cos(t * 1.4 + p.z * 0.5) * 0.6) * gust;
+  let flutter = vec3f(sin(t * 1.9 + p.x * 0.45 + p.z * 0.3), 0.0, cos(t * 1.4 + p.z * 0.5) * 0.6) * gust * (0.35 + w * 1.6);
+  // strong wind also bends everything downwind, in gusts
+  let lean = vec3f(g.wind.x, 0.0, g.wind.y) * w * w * (0.9 + 0.6 * sin(t * 0.8 + dot(p.xz, g.wind.xy) * 0.15));
+  return flutter + lean;
 }
 `;
 

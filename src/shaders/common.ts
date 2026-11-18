@@ -17,6 +17,9 @@ struct G {
   fwd: vec4f,      // xyz, near
   res: vec4f,      // low-res w, h, canvas w, h
   season: vec4f,   // blend weights: spring, summer, fall, winter
+  weather: vec4f,  // precipitation, snow share, fog, wind (0..1)
+  drift: vec4f,    // precipitation particles: drift x, z, fall (m, wrapped), -
+  wind: vec4f,     // wind direction x, z; cloud scroll x, z
 };
 @group(0) @binding(0) var<uniform> g: G;
 `;
