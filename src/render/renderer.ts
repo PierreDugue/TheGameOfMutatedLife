@@ -68,6 +68,10 @@ export class Renderer {
   private readonly primMeshes: { buf: GPUBuffer; count: number }[];
   width = 0; height = 0; lowW = 0; lowH = 0;
   pixel = true;
+  /** Season blend weights (spring, summer, fall, winter). */
+  season: [number, number, number, number] = [1, 0, 0, 0];
+  /** Season the shadow map was last drawn for (mushrooms come and go, snow hides grass). */
+  private shadowSeason = [1, 0, 0, 0];
 
   constructor(private readonly gpu: GPU, meshes: SceneMeshes, atlas: GPUTexture) {
     const d = (this.device = gpu.device);
@@ -300,6 +304,8 @@ export class Renderer {
     const d = this.device;
     // the world is static: re-render the shadow map only when the key light has moved ~0.2°
     const dd = light.dir, sd = this.shadowDir;
+    const seasonMoved = this.season.some((w, i) => Math.abs(w - this.shadowSeason[i]) > 0.02);
+    if (seasonMoved) { this.shadowSeason = [...this.season]; this.shadowDirty = true; }
     if (this.shadowDirty || dd[0] * sd[0] + dd[1] * sd[1] + dd[2] * sd[2] < 0.999994) {
       this.shadowM = shadowMatrix(light.dir);
       this.shadowDir = [...light.dir];
@@ -307,7 +313,7 @@ export class Renderer {
     }
     writeGlobals(this.u, {
       view, time, light, lowW: this.lowW, lowH: this.lowH, canvasW: this.width, canvasH: this.height,
-      underwater, pixel: this.pixel, levels: LEVELS, fog: 0.0035,
+      underwater, pixel: this.pixel, levels: LEVELS, fog: 0.0035, season: this.season,
     }, this.shadowM);
     d.queue.writeBuffer(this.ub, 0, this.u);
 

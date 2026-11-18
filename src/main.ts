@@ -11,6 +11,7 @@ import { MAX_SPEED, SPEEDS } from './life/protocol';
 import { MAX_PARTICLES } from './life/environment';
 import { makeLayout, type Pose } from './world/layout';
 import { scatter } from './world/scatter';
+import { SEASONS, Seasons, type SeasonMode } from './world/season';
 import { DayNight } from './world/sky';
 import { Terrain } from './world/terrain';
 import { uploadTextures } from './world/textures';
@@ -46,7 +47,18 @@ async function main(): Promise<void> {
   ui.seed.value = String(seed);
   let lifeOn = readLife();
   document.documentElement.classList.toggle('nolife', !lifeOn);
-  const goSeed = (s: number): void => { location.search = `?seed=${s >>> 0}${lifeOn ? '&life=1' : ''}`; };
+  /** New world: same URL options (life, season), new seed. */
+  const goSeed = (s: number): void => {
+    const q = new URLSearchParams(location.search);
+    q.set('seed', String(s >>> 0));
+    location.search = `?${q}`;
+  };
+  /** Sets or removes one URL option without reloading. */
+  const setParam = (k: string, v: string | null): void => {
+    const q = new URLSearchParams(location.search);
+    if (v === null) q.delete(k); else q.set(k, v);
+    window.history.replaceState(null, '', `${location.pathname}${q.size ? `?${q}` : ''}`);
+  };
   ui.reseed.onclick = () => goSeed(Math.floor(Math.random() * 1e6));
   ui.seed.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') goSeed(Number.parseInt(ui.seed.value, 10) || 0); });
   try {
@@ -81,6 +93,23 @@ async function main(): Promise<void> {
     const renderer = new Renderer(gpu, { terrain, solid: S.solid, cutout: S.cutout, water }, atlas);
     const cam = new FlyCamera(T, canvas);
     const sky = new DayNight();
+    // seasons: follow the calendar (auto) or stay pinned to one, from the menu, K, or ?season=… in the URL
+    const seasons = new Seasons();
+    const MODES: SeasonMode[] = ['auto', ...SEASONS];
+    const qs = new URLSearchParams(location.search).get('season') as SeasonMode | null;
+    if (qs && MODES.includes(qs)) seasons.mode = qs;
+    const seasonBtns = [...document.querySelectorAll<HTMLButtonElement>('.season button')];
+    const setSeason = (m: SeasonMode): void => {
+      seasons.mode = m;
+      for (const b of seasonBtns) b.classList.toggle('on', b.dataset.s === m);
+      setParam('season', m === 'auto' ? null : m);
+    };
+    for (const b of seasonBtns) b.onclick = () => setSeason(b.dataset.s as SeasonMode);
+    setSeason(seasons.mode);
+    const seasonLabel = (): string => {
+      const n = seasons.name;
+      return `${n[0].toUpperCase()}${n.slice(1)}${seasons.mode === 'auto' ? '' : ' (pinned)'}`;
+    };
     cam.pose(POSES[0]);
     addEventListener('resize', () => renderer.resize());
 
@@ -217,9 +246,7 @@ async function main(): Promise<void> {
       document.documentElement.classList.toggle('nolife', !on);
       lifeBtn.textContent = on ? 'Life: on' : 'Life: off';
       lifeBtn.classList.toggle('on', on);
-      const q = new URLSearchParams(location.search);
-      if (on) q.set('life', '1'); else q.delete('life');
-      window.history.replaceState(null, '', `${location.pathname}${q.size ? `?${q}` : ''}`);
+      setParam('life', on ? '1' : null);
       if (!on) {
         selected = 0; cam.follow = null; inspector.show(null); showOverlay(false);
         renderer.setLife(draw.imp, 0, 0);
@@ -246,6 +273,8 @@ async function main(): Promise<void> {
         return;
       }
       sky.hour = snap.hour; sky.update(0);
+      seasons.update(snap.day + snap.hour / 24, dt);
+      renderer.season = seasons.w;
       cam.update(dt);
       if (lifeOn) {
         const pxPerRad = renderer.lowH / (2 * 0.62);
@@ -262,8 +291,8 @@ async function main(): Promise<void> {
         const speedTxt = snap.paused ? '<span class="warn">paused</span>'
           : `×${req}${act < req * 0.9 ? ` requested · <span class="warn">×${act.toFixed(0)} actual</span>` : ''}${act >= 30 ? ` · ${(act / 600).toFixed(2)} days/s` : ''}`;
         const top = snap.species.slice(0, 4).map((sp) => `<span class="sp" style="color:${hueCss(sp.hue)}">${esc(sp.name)}</span> ${sp.count}`).join(' · ');
-        if (!lifeOn) lifeBar(`${clock(snap.time, snap.hour, snap.day + 1)}${snap.sunPaused ? ' (sun paused)' : ''} · ${speedTxt}`);
-        else lifeBar(`${clock(snap.time, snap.hour, snap.day + 1)}${snap.sunPaused ? ' (sun paused)' : ''} · ${speedTxt}${snap.event ? ` · <span class="warn">${esc(snap.event)}</span>` : ''}\n` +
+        if (!lifeOn) lifeBar(`${clock(snap.time, snap.hour, snap.day + 1)} · ${seasonLabel()}${snap.sunPaused ? ' (sun paused)' : ''} · ${speedTxt}`);
+        else lifeBar(`${clock(snap.time, snap.hour, snap.day + 1)} · ${seasonLabel()}${snap.sunPaused ? ' (sun paused)' : ''} · ${speedTxt}${snap.event ? ` · <span class="warn">${esc(snap.event)}</span>` : ''}\n` +
           (snap.n ? `${snap.n} organisms · ${snap.speciesAlive} species · gen ${snap.maxGen} · up to ${snap.maxCells} cells · ${snap.births} born (${snap.sexual} of two parents) · ${snap.deaths} died · ${snap.eaten} eaten\n${top}`
             : '<span class="warn">Life went extinct — press N for a new first cell</span>'));
         const d = snap.detail;
@@ -304,6 +333,10 @@ async function main(): Promise<void> {
       }
       if (!lifeOn && ['KeyL', 'KeyV', 'KeyF', 'KeyN', 'KeyG'].includes(e.code)) return;
       if (e.code === 'KeyH') ui.toggleHud();
+      else if (e.code === 'KeyK') {
+        setSeason(MODES[(MODES.indexOf(seasons.mode) + 1) % MODES.length]);
+        showToast(seasons.mode === 'auto' ? 'Seasons follow the calendar' : `Season: ${seasons.mode}`);
+      }
       else if (e.code === 'KeyM') {
         cam.setWalking(!cam.walking);
         showToast(cam.walking ? 'Walking · WASD move · Shift run · E jump · M to fly' : 'Flying · E / Q up / down · M to walk');

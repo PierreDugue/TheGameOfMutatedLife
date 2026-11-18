@@ -43,7 +43,7 @@ export interface Scatter { solid: Mesh; cutout: Mesh; counts: Record<string, num
 /** `clear`: spots (x, z, radius) kept free of trees and bushes, e.g. around the preset viewpoints. */
 export function scatter(T: Terrain, seed: number, clear: [number, number, number][] = []): Scatter {
   const rng = new Rng(seed ^ 0x5ca7), solid = new MeshBuilder(), cut = new MeshBuilder();
-  const counts: Record<string, number> = { trees: 0, bushes: 0, rocks: 0, grass: 0, reeds: 0, lilies: 0 };
+  const counts: Record<string, number> = { trees: 0, bushes: 0, rocks: 0, grass: 0, reeds: 0, lilies: 0, mushrooms: 0 };
   const EXT = HALF - 4;
   const slope = (x: number, z: number): number => 1 - T.normalAt(x, z)[1];
   const edge = (x: number, z: number): number => Math.max(Math.abs(x), Math.abs(z)) * 0.75 + Math.hypot(x, z) * 0.25;
@@ -102,6 +102,25 @@ export function scatter(T: Terrain, seed: number, clear: [number, number, number
   for (let n = 0; n < 120; n++) { // river bed stones
     const s = T.river[rr.int(0, T.river.length - 1)], o = rr.range(-1, 1) * s.w * 0.9;
     rock(s.x - s.tz * o, s.z + s.tx * o, rr.range(0.12, 0.45));
+  }
+
+  // ---- mushrooms: small clusters on the forest floor, drawn only in fall (the sway slot holds when each comes up) ----
+  const mu = rng.fork(7);
+  const CAPS: V3[] = [[0.78, 0.52, 0.32], [1.0, 0.86, 0.62], [0.95, 0.68, 0.3], [0.55, 0.36, 0.22]];
+  for (let n = 0; n < 700; n++) {
+    const cx = mu.range(-EXT, EXT), cz = mu.range(-EXT, EXT);
+    if (T.shoreDist(cx, cz) < 1.5 || slope(cx, cz) > 0.3 || mu.next() > smoothstep(-0.15, 0.35, forest(cx, cz))) continue;
+    const cap = mu.chance(0.15) ? [1.1, 0.22, 0.14] as V3 : mu.pick(CAPS), comes = mu.range(0.1, 0.75), k = mu.int(1, 5);
+    for (let c = 0; c < k; c++) {
+      const x = cx + (c ? mu.range(-0.6, 0.6) : 0), z = cz + (c ? mu.range(-0.6, 0.6) : 0), y = T.groundAt(x, z) - 0.02;
+      const s = mu.range(0.7, 1.3), h = 0.11 * s, rc = 0.12 * s;
+      solid.layer = L.Fungus; solid.ao = 1;
+      solid.tint = [1, 0.96, 0.88];
+      solid.tube([x, y, z], [x, y + h, z], 0.025 * s, 0.02 * s, 5, comes, comes, false);
+      solid.tint = cap.map((v) => v * mu.range(0.9, 1.1)) as V3;
+      solid.blob([x, y + h, z], [rc, rc * 0.5, rc], 1, mu.next() * 100, 0.1, comes, 0, true);
+    }
+    counts.mushrooms++;
   }
 
   // ---- grass, flowers (jittered grid, 3 crossed cards per clump) ----

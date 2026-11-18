@@ -40,8 +40,10 @@ fn sky(d: vec3f, px: vec2f) -> vec3f {
   if (d.y > 0.02) {
     let uv = d.xz / (d.y + 0.12) * 1.2 + vec2f(g.cam.w * 0.01, 0.0);
     let q = floor(uv * 24.0) / 24.0;
-    let n = fbm2(q * 1.3) - 0.48 + 0.12 * sin(g.cam.w * 0.02);
-    let k = floor(clamp(n * 4.0, 0.0, 1.0) * 3.0) / 3.0;
+    // cover by season: more in spring, none in summer
+    let cover = dot(g.season, vec4f(1.35, 0.0, 1.0, 1.0));
+    let n = fbm2(q * 1.3) - 0.48 + 0.12 * sin(g.cam.w * 0.02) + (cover - 1.0) * 0.14;
+    let k = floor(clamp(n * 4.0, 0.0, 1.0) * 3.0) / 3.0 * step(0.02, cover) * min(cover * 1.5, 1.0);
     let lit = mix(g.horizon.rgb * 1.2 + g.glow.rgb * 0.3, vec3f(0.2, 0.22, 0.35), night);
     c = mix(c, lit * g.sunDir.w * mix(0.8, 1.15, k), min(k * 1.4, 0.9) * smoothstep(0.02, 0.2, d.y));
   }

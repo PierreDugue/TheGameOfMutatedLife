@@ -16,6 +16,8 @@ export interface Frame {
   view: View; time: number; light: Light;
   lowW: number; lowH: number; canvasW: number; canvasH: number;
   underwater: boolean; pixel: boolean; levels: number; fog: number;
+  /** Season blend weights: spring, summer, fall, winter. */
+  season: [number, number, number, number];
 }
 
 /** Orthographic projection along the light fitted around the world box; depth 0 nearest the light. */
@@ -65,4 +67,5 @@ export function writeGlobals(m: Float32Array, F: Frame, shadowM: Float32Array): 
   m.set([ux, uy, uz, TAN_HALF_FOV], 68);
   m.set([fx, fy, fz, NEAR], 72);
   m.set([F.lowW, F.lowH, F.canvasW, F.canvasH], 76);
+  m.set(F.season, 80);
 }

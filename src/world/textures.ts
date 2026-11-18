@@ -6,6 +6,8 @@ import { hash2, Rng } from '../core/rng';
 /** Texture array layers. */
 export enum L {
   Grass, Dirt, Sand, Rock, Mud, Bark, Leaves, Needles, Willow, Blades, Flowers, Reed, Lily, LilyFlower, Bush, Berry, Water, Birch,
+  /** Mushrooms (pale, tinted per mushroom); only drawn in fall. */
+  Fungus,
   Count,
 }
 
@@ -182,6 +184,8 @@ export function paintTextures(seed: number): Uint8Array[] {
     const mark = h(x >> 2, y >> 1, 30) > 0.86 || (y % 9 === 0 && h(x >> 3, y, 31) > 0.4);
     return mark ? C(0x2a2622) : ramp([C(0xb8b2a4), C(0xcac4b6), C(0xdcd6c8), C(0xe8e4d8)], tn(x, y, 4, seed + 32) * 0.6 + h(x, y, 33) * 0.4);
   });
+  // Fungus: pale flesh with light speckles (caps and stems get their colour from the vertex tint)
+  fill((x, y) => (h(x, y, 34) > 0.9 ? C(0xfff8ec) : ramp([C(0xc8bca8), C(0xd6ccb8), C(0xe2d8c6)], tn(x, y, 4, seed + 35) * 0.6 + h(x, y, 36) * 0.4)));
   return layers;
 }
 

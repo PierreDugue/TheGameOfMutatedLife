@@ -7,7 +7,7 @@ import type { Terrain } from '../world/terrain';
 const CLEARANCE = 0.08; // eye height above the ground at the lowest
 const FAST = 4;
 // walking: eye height, pace (m/s), running multiplier, gravity, jump take-off speed, highest step taken without falling
-const EYE = 1.6, WALK = 1.6, RUN = 2.6, GRAVITY = 9.8, JUMP = 3.6, STEP = 0.35;
+const EYE = 1.6, WALK = 2, RUN = 3.3, GRAVITY = 9.8, JUMP = 3.6, STEP = 0.35;
 /** Swimming: the eye floats this far above the water surface, and moves at this share of the walking pace. */
 const SWIM_EYE = 0.25, SWIM = 0.5;
 

@@ -16,6 +16,7 @@ struct G {
   up: vec4f,       // xyz, tan half fov y
   fwd: vec4f,      // xyz, near
   res: vec4f,      // low-res w, h, canvas w, h
+  season: vec4f,   // blend weights: spring, summer, fall, winter
 };
 @group(0) @binding(0) var<uniform> g: G;
 `;
@@ -59,8 +60,51 @@ fn bayer(p: vec2f) -> f32 {
 }
 `;
 
+/** Seasonal looks, driven by g.season = (spring, summer, fall, winter) weights. Needs NOISE. */
+export const SEASON = /* wgsl */ `
+fn lum(c: vec3f) -> f32 { return dot(c, vec3f(0.3, 0.59, 0.11)); }
+
+/** Snow lies here: patches spread as winter deepens, only on fairly flat, upward-facing surfaces. */
+fn snowAt(p: vec3f, n: vec3f, px: vec2f) -> bool {
+  let w = g.season.w;
+  if (w < 0.01 || n.y < 0.5) { return false; }
+  let k = vnoise(p.xz * 0.35) * 0.6 + vnoise(p.xz * 2.7) * 0.4 + (bayer(px) - 0.5) * 0.15;
+  return k < w * 1.3 * smoothstep(0.5, 0.8, n.y) - 0.08;
+}
+fn snowAlbedo(p: vec3f) -> vec3f {
+  return vec3f(0.7, 0.74, 0.8) * (0.92 + 0.08 * step(0.55, vnoise(p.xz * 9.0)));
+}
+
+/** Broadleaf foliage: fresh light green in spring; one of yellow, orange, red or brown per tree in fall. */
+fn foliage(c: vec3f, p: vec3f) -> vec3f {
+  let s = g.season;
+  let l = lum(c);
+  let spring = c * vec3f(1.3, 1.4, 0.7) + vec3f(0.015, 0.025, 0.0);
+  let h = vnoise(p.xz * 0.28 + vec2f(13.0, 7.0)) * 0.8 + hash12(floor(p.xz * 0.7)) * 0.2;
+  var pal = vec3f(0.5, 0.26, 0.09);                        // brown
+  if (h < 0.35) { pal = vec3f(1.0, 0.78, 0.12); }          // yellow
+  else if (h < 0.5) { pal = vec3f(1.0, 0.42, 0.06); }      // orange
+  else if (h < 0.65) { pal = vec3f(0.85, 0.12, 0.05); }    // red
+  let fall = pal * l * 2.6;
+  let winter = mix(c, vec3f(l) * vec3f(0.95, 0.9, 0.7), 0.55) * 0.8;
+  return c * s.y + spring * s.x + fall * s.z + winter * s.w;
+}
+
+/** Grass: lighter in spring, straw-yellow in fall, faded in winter. Non-green texels (petals, cattails) are kept. */
+fn grassSeason(c: vec3f) -> vec3f {
+  if (c.g < c.r || c.g < c.b) { return c; }
+  let s = g.season;
+  let l = lum(c);
+  let spring = c * vec3f(1.2, 1.3, 0.75);
+  let fall = mix(c, vec3f(l) * vec3f(2.0, 1.55, 0.55), 0.75);
+  let winter = mix(c, vec3f(l) * vec3f(1.2, 1.1, 0.85), 0.6) * 0.85;
+  return c * s.y + spring * s.x + fall * s.z + winter * s.w;
+}
+`;
+
 export const LIGHTING = /* wgsl */ `
 ${NOISE}
+${SEASON}
 /** Texture coordinates projected from world space on the dominant axis of the normal (side faces keep v vertical). */
 fn projUV(p: vec3f, n: vec3f) -> vec2f {
   let a = abs(n);

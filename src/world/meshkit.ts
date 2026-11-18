@@ -82,9 +82,10 @@ export class MeshBuilder {
 
   /**
    * Lumpy flat-shaded blob: an icosphere scaled by `r`, displaced by noise (`rough` = fraction of the radius).
-   * `sink` drops the vertices below `floorY` onto it (rocks sitting in the ground). Sway ∝ height above `c`.
+   * `sink` drops the vertices below `floorY` onto it (rocks sitting in the ground). Sway ∝ height above `c`,
+   * unless `flatSway`: then every vertex gets `sway` as is (it carries a per-object value, e.g. for mushrooms).
    */
-  blob(c: V3, r: V3, level: number, seed: number, rough: number, sway = 0, rotY = 0): void {
+  blob(c: V3, r: V3, level: number, seed: number, rough: number, sway = 0, rotY = 0, flatSway = false): void {
     const ico = icosphere(level), cs = Math.cos(rotY), sn = Math.sin(rotY);
     const P = ico.v.map((d) => {
       const k = 1 + rough * vnoise(d[0] * 2.1 + seed * 7.13, d[1] * 2.1 + d[2] * 1.7, seed) +
@@ -92,7 +93,7 @@ export class MeshBuilder {
       const x = d[0] * r[0] * k, z = d[2] * r[2] * k;
       return [c[0] + x * cs - z * sn, c[1] + d[1] * r[1] * k, c[2] + x * sn + z * cs] as V3;
     });
-    const sw = (p: V3): number => sway * Math.max(0, (p[1] - c[1] + r[1]) / (2 * r[1]));
+    const sw = (p: V3): number => flatSway ? sway : sway * Math.max(0, (p[1] - c[1] + r[1]) / (2 * r[1]));
     for (let i = 0; i < ico.f.length; i += 3) {
       const a = P[ico.f[i]], b = P[ico.f[i + 1]], d = P[ico.f[i + 2]];
       this.flatTri(a, b, d, sw(a), sw(b), sw(d));
